@@ -1,14 +1,17 @@
 import os
+import threading
+from flask import Flask
 import telebot
-from google import genai
+import google.generativeai as genai
 from PIL import Image
 
-# Keys Setup
 TELEGRAM_BOT_TOKEN = "9090861810:AAFIH4OOY7-KA2Z0de9riyS1CaDXuFEXy4s"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
+genai.configure(api_key=GEMINI_API_KEY)
+ai_model = genai.GenerativeModel('gemini-1.5-flash')
+
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
-client = genai.Client(api_key=GEMINI_API_KEY)
 
 SYSTEM_PROMPT = """
 You are an elite SSC CGL Quant & Reasoning mentor.
@@ -21,11 +24,11 @@ Do not waste words with generic greetings; go straight to the solution.
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
-    bot.reply_to(message, "नमस्ते! SSC का कोई भी सवाल (फोटो या टेक्स्ट) भेजो, मैं उसका सबसे छोटा और स्मार्ट तरीका निकाल कर दूँगा।")
+    bot.reply_to(message, "नमस्ते! SSC का कोई भी सवाल (फोटो या टेक्स्ट) भेजो, मैं उसका सबसे छोटा तरीका निकाल कर दूँगा।")
 
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
-    status_msg = bot.reply_to(message, "⚡ सवाल देख रहा हूँ, सबसे छोटा तरीका निकाल रहा हूँ...")
+    bot.reply_to(message, "⚡ सवाल प्रोसेस हो रहा है, सबसे छोटा तरीका निकाल रहा हूँ...")
     try:
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
@@ -33,10 +36,7 @@ def handle_photo(message):
             f.write(downloaded_file)
         
         img = Image.open("temp_q.jpg")
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=[img, SYSTEM_PROMPT]
-        )
+        response = ai_model.generate_content([SYSTEM_PROMPT, img])
         bot.reply_to(message, response.text)
     except Exception as e:
         bot.reply_to(message, f"त्रुटि: {e}")
@@ -44,12 +44,24 @@ def handle_photo(message):
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
     try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=[message.text, SYSTEM_PROMPT]
-        )
+        response = ai_model.generate_content(f"{SYSTEM_PROMPT}\n\nQuestion: {message.text}")
         bot.reply_to(message, response.text)
     except Exception as e:
         bot.reply_to(message, f"त्रुटि: {e}")
 
-bot.infinity_polling()
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
+if __name__ == "__main__":
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+    bot.infinity_polling()
+    
